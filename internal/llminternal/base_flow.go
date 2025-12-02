@@ -194,6 +194,7 @@ func (f *Flow) runOneStep(ctx agent.InvocationContext) iter.Seq2[*session.Event,
 
 func (f *Flow) preprocess(ctx agent.InvocationContext, req *model.LLMRequest) error {
 	llmAgent, ok := ctx.Agent().(Agent)
+
 	if !ok {
 		return fmt.Errorf("agent %v is not an LLMAgent", ctx.Agent().Name())
 	}
@@ -204,18 +205,47 @@ func (f *Flow) preprocess(ctx agent.InvocationContext, req *model.LLMRequest) er
 			return err
 		}
 	}
+	// TODO(cs168898): Add a dynamic filter where it can filter based on per request (for ratelimiting).
+	filter := Reveal(llmAgent).Filter
+	hasFilter := len(filter) > 0
 
-	// run processors for tools.
-	tools := Reveal(llmAgent).Tools
+	// run processors for tools and filter
+	tools := []tool.Tool{}
+	baseTools := Reveal(llmAgent).Tools
+
+	if hasFilter {
+		for _, t := range baseTools {
+			if use, ok := filter[t.Name()]; ok && use {
+				tools = append(tools, t)
+			}
+		}
+	} else {
+		tools = append(tools, baseTools...)
+	}
+
 	for _, toolSet := range Reveal(llmAgent).Toolsets {
+
 		tsTools, err := toolSet.Tools(icontext.NewReadonlyContext(ctx))
 		if err != nil {
 			return fmt.Errorf("failed to extract tools from the tool set %q: %w", toolSet.Name(), err)
 		}
 
-		tools = append(tools, tsTools...)
+		// if filter contains something then filter accordingly
+		if hasFilter {
+			for _, tool := range tsTools {
+				use, found := filter[tool.Name()]
+				if !found {
+					continue
+				}
+				if use {
+					tools = append(tools, tool)
+				}
+			}
+		} else {
+			// else just append the original toolset
+			tools = append(tools, tsTools...)
+		}
 	}
-
 	return toolPreprocess(ctx, req, tools)
 }
 
@@ -360,7 +390,6 @@ func findLongRunningFunctionCallIDs(c *genai.Content, tools map[string]tool.Tool
 
 // handleFunctionCalls calls the functions and returns the function response event.
 //
-// TODO: accept filters to include/exclude function calls.
 // TODO: check feasibility of running tool.Run concurrently.
 func (f *Flow) handleFunctionCalls(ctx agent.InvocationContext, toolsDict map[string]tool.Tool, resp *model.LLMResponse) (*session.Event, error) {
 	var fnResponseEvents []*session.Event
