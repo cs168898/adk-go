@@ -1002,7 +1002,7 @@ func newGeminiModel(t *testing.T, modelName string, transport http.RoundTripper)
 		recording := false
 		transport, recording = newGeminiTestClientConfig(t, trace)
 		if recording { // if we are recording httprr trace, don't use the fakeKey.
-			apiKey = "AIzaSyBq8uw1Gff6ZAfbEIEVGv-mOs4FFFoGhMw"
+			apiKey = ""
 		}
 	}
 	model, err := gemini.NewModel(t.Context(), modelName, &genai.ClientConfig{
